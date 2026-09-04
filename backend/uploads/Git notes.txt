@@ -1,0 +1,15 @@
+Git notes
+1)git init -> init tells git to initialize this directory a git repository by creating necessary .GitHub and metadata so git can track changes in this project., track this projects history.
+		-> this command prepares the git repository. files begin being tracked only after stage and commit them.
+2) git add . -> git add <file-or-folder> stages the current version of the specified file(s) or folder(s) so that git commit can include them in the next snapshot.
+3) git commit -> creates a snapshot of what currently inside the staging area regardless of old or new version in working directory that has not been staged.
+4) git status --> shows the state of working directory and staging area.
+5) A snapshot is Git's representation of the project's state at a particular commit.
+6) Git should reuse the unchanged files and store only new objects for the files whose contents changed. This makes creating snapshots efficient in both storage and speed.
+7)Git stores a hash (fingerprint) of a file's contents to identify it efficiently. If the file contents change, the hash changes, so Git knows it is a different object.
+
+Key insights:
+--> staging is mandatory and first step to commit
+--> if a git has not seen file been changed(that is newly created file but not staged yet) it shows that file is untracked
+
+--> staging area contain multiple files staged but these are not same version but different file
