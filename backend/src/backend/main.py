@@ -1,5 +1,4 @@
-import uuid
-import datetime
+import uuid,datetime,json
 from fastapi.responses import HTMLResponse
 from fastapi import HTTPException
 from fastapi import FastAPI, File, UploadFile
@@ -15,14 +14,8 @@ ALLOWED_FILE_TYPES = [
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 ]
 MAX_FILE_SIZE = 10 * 1024* 1024
-"""
-UUID              → document ID
-Original filename → filename
-Stored filename   → UUID + filename
-MIME type         → content_type
-File size         → size validation logic
-Status            → uploaded
-"""
+documents = {}
+
 class FileMetaObject(BaseModel):
     document_id:str
     original_filename:str
@@ -73,7 +66,7 @@ async def upload_document(myfile: UploadFile = File(...)):
 
     content = await myfile.read()
     
-    unique_id = uuid.uuid4()
+    unique_id = str(uuid.uuid4())
     unique_file_name = f"{unique_id}_{filename}"
     print(unique_id,unique_file_name)
     file_path = UPLOAD_DIR/unique_file_name
@@ -88,17 +81,19 @@ async def upload_document(myfile: UploadFile = File(...)):
             "response": 500,
             "message": "Not saved"
         }
-    metaobject = FileMetaObject(document_id=str(unique_id),
+    metaobject = FileMetaObject(document_id=unique_id,
                                 original_filename=filename,
                                 stored_filename=unique_file_name,
                                 mime_type=file_type,
                                 file_size=file_size,
                                 status='uploaded',
                                 uploaded_at=str(timestamp))
+    documents[unique_id]= metaobject
     return metaobject
 
-def validate_file_type(file):
-    if file in ALLOWED_FILE_TYPES:
-        return True
-    else:
-        return False
+@app.get('/documents/{document_id}')
+async def display_document_metaobject(document_id):
+    document = documents.get(document_id)
+    if document is None:
+        raise HTTPException(status_code=404,detail='File not found')
+    return document
