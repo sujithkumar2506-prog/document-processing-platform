@@ -1,4 +1,5 @@
 import uuid
+import datetime
 from fastapi.responses import HTMLResponse
 from fastapi import HTTPException
 from fastapi import FastAPI, File, UploadFile
@@ -14,6 +15,22 @@ ALLOWED_FILE_TYPES = [
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 ]
 MAX_FILE_SIZE = 10 * 1024* 1024
+"""
+UUID              → document ID
+Original filename → filename
+Stored filename   → UUID + filename
+MIME type         → content_type
+File size         → size validation logic
+Status            → uploaded
+"""
+class FileMetaObject(BaseModel):
+    document_id:str
+    original_filename:str
+    stored_filename:str
+    mime_type:str
+    file_size:int
+    status:str
+    uploaded_at: str
 
 @app.get("/")
 async def main():
@@ -56,27 +73,29 @@ async def upload_document(myfile: UploadFile = File(...)):
 
     content = await myfile.read()
     
-    # print(os.getcwd())
     unique_id = uuid.uuid4()
     unique_file_name = f"{unique_id}_{filename}"
     print(unique_id,unique_file_name)
     file_path = UPLOAD_DIR/unique_file_name
+    timestamp = datetime.datetime.now()
     try:
         with open(file_path, "wb") as file:
             file.write(content)
-
-        return {
-            "message": "Document is saved",
-            "filename": filename,
-            "file_type": file_type
-        }
-
+        
     except Exception as e:
         print(e)
         return {
             "response": 500,
             "message": "Not saved"
         }
+    metaobject = FileMetaObject(document_id=str(unique_id),
+                                original_filename=filename,
+                                stored_filename=unique_file_name,
+                                mime_type=file_type,
+                                file_size=file_size,
+                                status='uploaded',
+                                uploaded_at=str(timestamp))
+    return metaobject
 
 def validate_file_type(file):
     if file in ALLOWED_FILE_TYPES:
