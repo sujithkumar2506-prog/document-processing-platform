@@ -157,6 +157,29 @@ async def display_document_metaobject(document_id: str):
     uploaded_at=result[6]
 )
 
+@app.get('/documents')
+async def get_all_documents():
+    connection = sqlite3.connect('metadata.db')
+    cursor = connection.cursor()
+    list_of_metaobjects = []
+    query = '''
+    SELECT * FROM documents
+    '''
+    cursor.execute(query)
+    rows = cursor.fetchall()
+    connection.close()
+    for row in rows:
+        metaobject = FileMetaObject(document_id=row[0],
+                                    original_filename=row[1],
+                                    stored_filename=row[2],
+                                    mime_type=row[3],
+                                    file_size=row[4],
+                                    status=row[5],
+                                    uploaded_at=row[6])
+        list_of_metaobjects.append(metaobject)
+    
+    return list_of_metaobjects
+
    
     
     
