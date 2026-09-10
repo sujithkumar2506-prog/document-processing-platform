@@ -8,7 +8,7 @@ UPLOAD_DIR = Path('uploads')
 UPLOAD_DIR.mkdir(exist_ok=True)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-DATABASE_PATH = BASE_DIR / "DATABASE_PATH"
+DATABASE_PATH = BASE_DIR / 'metadata.db'
 app = FastAPI()
 
 ALLOWED_FILE_TYPES = [
@@ -19,7 +19,7 @@ MAX_FILE_SIZE = 10 * 1024* 1024
 
 # SQLite connection
 try:
-    connection = sqlite3.connect('DATABASE_PATH')
+    connection = sqlite3.connect(DATABASE_PATH)
     cursor = connection.cursor()
     query = '''
     CREATE TABLE IF NOT EXISTS documents(
@@ -103,7 +103,7 @@ async def upload_document(myfile: UploadFile = File(...)):
                                 status='uploaded',
                                 uploaded_at=str(timestamp))
     # Inserting data to database
-    connection = sqlite3.connect('DATABASE_PATH')
+    connection = sqlite3.connect(DATABASE_PATH)
     cursor = connection.cursor()
     print(metaobject)
     query = """
@@ -136,7 +136,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
 @app.get('/documents/{document_id}')
 async def display_document_metaobject(document_id: str):
 
-    connection = sqlite3.connect('DATABASE_PATH')
+    connection = sqlite3.connect(DATABASE_PATH)
     cursor = connection.cursor()
     query = """
     SELECT * FROM documents
@@ -159,7 +159,7 @@ async def display_document_metaobject(document_id: str):
 
 @app.get('/documents')
 async def get_all_documents():
-    connection = sqlite3.connect('metadata.db')
+    connection = sqlite3.connect(DATABASE_PATH)
     cursor = connection.cursor()
     list_of_metaobjects = []
     query = '''
@@ -176,10 +176,47 @@ async def get_all_documents():
                                     file_size=row[4],
                                     status=row[5],
                                     uploaded_at=row[6])
+        print(metaobject)
         list_of_metaobjects.append(metaobject)
+        
     
     return list_of_metaobjects
 
-   
+@app.delete('/documents/{document_id}')
+async def delete_document(document_id):
+    connection = sqlite3.connect(DATABASE_PATH)
+    cursor = connection.cursor()
+    query = '''SELECT * FROM documents where document_id = ?'''
+    cursor.execute(query,(document_id,))
+    row = cursor.fetchone()
+    if not row:
+        connection.close()
+        raise HTTPException(status_code=404,detail='document not found')
+    
+    print(row)
+    filename = row[2]
+    file_path = UPLOAD_DIR/filename
+    # Deleting stored file and metadata
+    try:
+        
+        delete_query = '''DELETE FROM documents WHERE document_id = ?'''
+        # delete query to delete metadata
+        cursor.execute(delete_query,(document_id,))
+        connection.commit()
+        
+        # delete the actual stored file
+        file_path.unlink()
+        print('File deleted successfully')
+    except Exception as e:
+        print(e)
+        print("Something went wrong. cannot delete file and metadata")
+    finally:
+        connection.close()
+
+    return {
+    "message": "Document deleted successfully",
+    "document_id": row[0]
+}
+
     
     
