@@ -1,4 +1,4 @@
-import uuid,datetime,json
+import uuid,datetime,sqlite3
 from fastapi.responses import HTMLResponse
 from fastapi import HTTPException
 from fastapi import FastAPI, File, UploadFile
@@ -6,7 +6,9 @@ from pydantic import BaseModel
 from pathlib import Path
 UPLOAD_DIR = Path('uploads')
 UPLOAD_DIR.mkdir(exist_ok=True)
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
+DATABASE_PATH = BASE_DIR / "DATABASE_PATH"
 app = FastAPI()
 
 ALLOWED_FILE_TYPES = [
@@ -14,7 +16,28 @@ ALLOWED_FILE_TYPES = [
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 ]
 MAX_FILE_SIZE = 10 * 1024* 1024
-documents = {}
+
+# SQLite connection
+try:
+    connection = sqlite3.connect('DATABASE_PATH')
+    cursor = connection.cursor()
+    query = '''
+    CREATE TABLE IF NOT EXISTS documents(
+    document_id TEXT PRIMARY KEY NOT NULL,
+    original_filename TEXT,
+    stored_filename TEXT,
+    mime_type TEXT,
+    file_size INT,
+    status TEXT,
+    uploaded_at TEXT)
+    '''
+    cursor.execute(query)
+    print('Table created successfully')
+    connection.close()
+
+except Exception as e:
+    print("Something went wrong upon initializing database")
+    print(e)
 
 class FileMetaObject(BaseModel):
     document_id:str
@@ -37,15 +60,6 @@ async def main():
     """
     return HTMLResponse(content=content)
 
-
-@app.post('/uploadfiles')
-async def test_upload_doc_type(file: UploadFile = File(...)):
-    filename = file.filename
-    filetype = file.content_type
-    return {
-        'status':'saved','file_type':filetype
-    }
-
 @app.post("/upload")
 async def upload_document(myfile: UploadFile = File(...)):
 
@@ -67,9 +81,9 @@ async def upload_document(myfile: UploadFile = File(...)):
     content = await myfile.read()
     
     unique_id = str(uuid.uuid4())
-    unique_file_name = f"{unique_id}_{filename}"
-    print(unique_id,unique_file_name)
-    file_path = UPLOAD_DIR/unique_file_name
+    unique_filename = f"{unique_id}_{filename}"
+    print(unique_id,unique_filename)
+    file_path = UPLOAD_DIR/unique_filename
     timestamp = datetime.datetime.now()
     try:
         with open(file_path, "wb") as file:
@@ -83,17 +97,66 @@ async def upload_document(myfile: UploadFile = File(...)):
         }
     metaobject = FileMetaObject(document_id=unique_id,
                                 original_filename=filename,
-                                stored_filename=unique_file_name,
+                                stored_filename=unique_filename,
                                 mime_type=file_type,
                                 file_size=file_size,
                                 status='uploaded',
                                 uploaded_at=str(timestamp))
-    documents[unique_id]= metaobject
+    # Inserting data to database
+    connection = sqlite3.connect('DATABASE_PATH')
+    cursor = connection.cursor()
+    print(metaobject)
+    query = """
+INSERT INTO documents (
+    document_id,
+    original_filename,
+    stored_filename,
+    mime_type,
+    file_size,
+    status,
+    uploaded_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+"""
+   
+    cursor.execute(query,
+                   (
+        metaobject.document_id,
+        metaobject.original_filename,
+        metaobject.stored_filename,
+        metaobject.mime_type,
+        metaobject.file_size,
+        metaobject.status,
+        metaobject.uploaded_at
+    ))
+    connection.commit()
+    print('Inserted data successfully')
     return metaobject
 
 @app.get('/documents/{document_id}')
-async def display_document_metaobject(document_id):
-    document = documents.get(document_id)
-    if document is None:
-        raise HTTPException(status_code=404,detail='File not found')
-    return document
+async def display_document_metaobject(document_id: str):
+
+    connection = sqlite3.connect('DATABASE_PATH')
+    cursor = connection.cursor()
+    query = """
+    SELECT * FROM documents
+    WHERE document_id = ?
+    """
+    cursor.execute(query, (document_id,))
+    result = cursor.fetchone()
+    connection.close()
+    if not result:
+        raise HTTPException(status_code=404,detail='id not found')
+    return FileMetaObject(
+    document_id=result[0],
+    original_filename=result[1],
+    stored_filename=result[2],
+    mime_type=result[3],
+    file_size=result[4],
+    status=result[5],
+    uploaded_at=result[6]
+)
+
+   
+    
+    
