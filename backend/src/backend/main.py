@@ -1,7 +1,7 @@
 import uuid,datetime,sqlite3
 from fastapi.responses import HTMLResponse
-from fastapi import HTTPException
-from fastapi import FastAPI, File, UploadFile
+from fastapi import HTTPException, FastAPI, File, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from pathlib import Path
 UPLOAD_DIR = Path('uploads')
@@ -218,5 +218,48 @@ async def delete_document(document_id):
     "document_id": row[0]
 }
 
+@app.get('/documents/{document_id}/download')
+async def download_document(document_id):
+    # verify document_id in metadata
+    connection = sqlite3.connect(DATABASE_PATH)
+    cursor = connection.cursor()
+    validate_query = '''SELECT document_id,original_filename,stored_filename FROM documents WHERE document_id = ?'''
+
+    cursor.execute(validate_query,(document_id,))
+    response = cursor.fetchone()
+    if not response:
+        raise HTTPException(status_code=404,detail='document id not found')
+    filename = response[1]
+    stored_filename = response[2]
+    document_path = UPLOAD_DIR/stored_filename
+    # validate document exists in uploads directory
+    
+    if not document_path.is_file():
+        raise HTTPException(status_code=404,detail='file not found')
+    
+    return FileResponse(
+    path=document_path,
+    filename=filename,
+    media_type="application/octet-stream"
+)
+    
+@app.patch('/documents/{document_id}/status')
+async def update_status(document_id,status):
+    # Validate document_id
+    connection = sqlite3.connect(DATABASE_PATH)
+    cursor = connection.cursor()
+    validate_query = '''SELECT document_id,original_filename,stored_filename FROM documents WHERE document_id = ?'''
+    
+    cursor.execute(validate_query,(document_id,))
+    response = cursor.fetchone()
+    if not response:
+        raise HTTPException(status_code=404,detail='document id not found')
+    update_query = '''UPDATE documents SET status = ? WHERE document_id = ?'''
+    cursor.execute(update_query,(status,document_id))
+    connection.commit()
+    cursor.execute('''SELECT status FROM documents WHERE document_id=?''',(document_id,))
+    response = cursor.fetchone()
+    connection.close()
+    return {'status':response[0]}
     
     
