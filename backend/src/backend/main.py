@@ -4,11 +4,10 @@ from fastapi import HTTPException, FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from pathlib import Path
+from .database import connection_helper
 UPLOAD_DIR = Path('uploads')
 UPLOAD_DIR.mkdir(exist_ok=True)
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-DATABASE_PATH = BASE_DIR / 'metadata.db'
 app = FastAPI()
 
 ALLOWED_FILE_TYPES = [
@@ -19,8 +18,7 @@ MAX_FILE_SIZE = 10 * 1024* 1024
 
 # SQLite connection
 try:
-    connection = sqlite3.connect(DATABASE_PATH)
-    cursor = connection.cursor()
+    connection, cursor = connection_helper()
     query = '''
     CREATE TABLE IF NOT EXISTS documents(
     document_id TEXT PRIMARY KEY NOT NULL,
@@ -47,6 +45,15 @@ class FileMetaObject(BaseModel):
     file_size:int
     status:str
     uploaded_at: str
+
+class DocumentUpdate(BaseModel):
+    original_filename: str | None = None
+    stored_filename: str | None = None
+    mime_type: str | None = None
+    file_size: int | None = None
+    status: str | None = None
+    uploaded_at: str | None = None
+
 
 @app.get("/")
 async def main():
@@ -103,8 +110,7 @@ async def upload_document(myfile: UploadFile = File(...)):
                                 status='uploaded',
                                 uploaded_at=str(timestamp))
     # Inserting data to database
-    connection = sqlite3.connect(DATABASE_PATH)
-    cursor = connection.cursor()
+    connection, cursor = connection_helper()
     print(metaobject)
     query = """
 INSERT INTO documents (
@@ -136,8 +142,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?)
 @app.get('/documents/{document_id}')
 async def display_document_metaobject(document_id: str):
 
-    connection = sqlite3.connect(DATABASE_PATH)
-    cursor = connection.cursor()
+    connection, cursor = connection_helper()
     query = """
     SELECT * FROM documents
     WHERE document_id = ?
@@ -159,8 +164,7 @@ async def display_document_metaobject(document_id: str):
 
 @app.get('/documents')
 async def get_all_documents():
-    connection = sqlite3.connect(DATABASE_PATH)
-    cursor = connection.cursor()
+    connection, cursor = connection_helper()
     list_of_metaobjects = []
     query = '''
     SELECT * FROM documents
@@ -184,8 +188,7 @@ async def get_all_documents():
 
 @app.delete('/documents/{document_id}')
 async def delete_document(document_id):
-    connection = sqlite3.connect(DATABASE_PATH)
-    cursor = connection.cursor()
+    connection, cursor = connection_helper()
     query = '''SELECT * FROM documents where document_id = ?'''
     cursor.execute(query,(document_id,))
     row = cursor.fetchone()
@@ -221,13 +224,13 @@ async def delete_document(document_id):
 @app.get('/documents/{document_id}/download')
 async def download_document(document_id):
     # verify document_id in metadata
-    connection = sqlite3.connect(DATABASE_PATH)
-    cursor = connection.cursor()
+    connection, cursor = connection_helper()
     validate_query = '''SELECT document_id,original_filename,stored_filename FROM documents WHERE document_id = ?'''
 
     cursor.execute(validate_query,(document_id,))
     response = cursor.fetchone()
     if not response:
+        connection.close()
         raise HTTPException(status_code=404,detail='document id not found')
     filename = response[1]
     stored_filename = response[2]
@@ -235,24 +238,27 @@ async def download_document(document_id):
     # validate document exists in uploads directory
     
     if not document_path.is_file():
+        connection.close()
         raise HTTPException(status_code=404,detail='file not found')
+
+    connection.close()
     
     return FileResponse(
-    path=document_path,
-    filename=filename,
-    media_type="application/octet-stream"
-)
+        path=document_path,
+        filename=filename,
+        media_type="application/octet-stream"
+    )
     
 @app.patch('/documents/{document_id}/status')
 async def update_status(document_id,status):
     # Validate document_id
-    connection = sqlite3.connect(DATABASE_PATH)
-    cursor = connection.cursor()
+    connection, cursor = connection_helper()
     validate_query = '''SELECT document_id,original_filename,stored_filename FROM documents WHERE document_id = ?'''
     
     cursor.execute(validate_query,(document_id,))
     response = cursor.fetchone()
     if not response:
+        connection.close()
         raise HTTPException(status_code=404,detail='document id not found')
     update_query = '''UPDATE documents SET status = ? WHERE document_id = ?'''
     cursor.execute(update_query,(status,document_id))
@@ -262,4 +268,78 @@ async def update_status(document_id,status):
     connection.close()
     return {'status':response[0]}
     
-    
+
+@app.patch("/documents/{document_id}")
+async def update_document(document_id: str, update_data: DocumentUpdate):
+    connection, cursor = connection_helper()
+
+    # Check whether the document exists
+    cursor.execute(
+        """
+        SELECT * FROM documents
+        WHERE document_id = ?
+        """,
+        (document_id,)
+    )
+
+    document = cursor.fetchone()
+
+    if not document:
+        connection.close()
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found"
+        )
+
+    # Get only the fields provided by the user
+    update_fields = update_data.model_dump(exclude_none=True)
+
+    # If no fields were provided
+    if not update_fields:
+        connection.close()
+        raise HTTPException(
+            status_code=400,
+            detail="No fields provided for update"
+        )
+
+    # Build the SQL query dynamically
+    set_clause = ", ".join(
+        f"{field} = ?" for field in update_fields
+    )
+
+    values = list(update_fields.values())
+    values.append(document_id)
+
+    query = f"""
+        UPDATE documents
+        SET {set_clause}
+        WHERE document_id = ?
+    """
+
+    cursor.execute(query, values)
+
+    connection.commit()
+
+    # Fetch updated document
+    cursor.execute(
+        """
+        SELECT * FROM documents
+        WHERE document_id = ?
+        """,
+        (document_id,)
+    )
+
+    updated_document = cursor.fetchone()
+
+    connection.close()
+
+    return FileMetaObject(
+        document_id=updated_document[0],
+        original_filename=updated_document[1],
+        stored_filename=updated_document[2],
+        mime_type=updated_document[3],
+        file_size=updated_document[4],
+        status=updated_document[5],
+        uploaded_at=updated_document[6]
+    )
+
