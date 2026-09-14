@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from pathlib import Path
 from .database import connection_helper
-from .text_extraction import extract_text_from_pdf
+from .text_extraction import extract_text_from_pdf, extract_with_ocr
 UPLOAD_DIR = Path('uploads')
 UPLOAD_DIR.mkdir(exist_ok=True)
 
@@ -344,6 +344,8 @@ async def update_document(document_id: str, update_data: DocumentUpdate):
         uploaded_at=updated_document[6]
     )
 
+
+@app.get('/documents/{document_id}/extract-text')
 async def process_pdf(document_id: str):
     connection, cursor = connection_helper()
     query = '''SELECT stored_filename FROM documents WHERE document_id = ?'''
@@ -365,5 +367,8 @@ async def process_pdf(document_id: str):
         return {"extracted_text": extracted_text}
         
     # OCR can be implemented here for scanned documents if needed
-    
-    return None
+    extracted_text = extract_with_ocr(document_path)
+    if extracted_text and extracted_text.strip():
+        return {"extracted_text": extracted_text}
+
+    return {'message': 'No text could be extracted from the document.'}
